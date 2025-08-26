@@ -1,0 +1,525 @@
+---
+title: "Conditional recoding of variables for Data Analysis"
+subtitle: "Getting analytical variables from original/raw data for epidemiological studies"
+output:
+  pdf_document:
+    toc: false         # Optional: adds table of contents
+    number_sections: false
+    keep_tex: true    # Optional: keeps intermediate .tex file for debugging
+    includes:
+      in_header: preamble.tex 
+    highlight: tango
+    latex_engine: pdflatex
+    pandoc_args:       
+      - "--variable"
+      - "verbatim-in-note"
+      - "--variable"
+      - "table-caption-is-heading:false"
+fontsize: 11pt        # Optional: adjust font size
+geometry: margin=1in  # Optional: control page margins
+header-includes:
+  - \usepackage{longtable}
+editor_options:
+  chunk_output_type: console
+---
+\begin{center}
+\textbf{Lindsay Trujillo, PhD, MPH}
+
+\vspace{0.75em}
+
+\href{mailto:lindttruj@gmail.com}{\textcolor{blue}{\underline{Email: lindttruj@gmail.com}}} \quad\textbar\quad
+\href{https://www.linkedin.com/in/lindsay-trujillo}{\textcolor{blue}{\underline{LinkedIn}}} \quad\textbar\quad
+\href{https://scholar.google.com/citations?user=wwlDxpwAAAAJ\&hl=en}{\textcolor{blue}{\underline{Google Scholar}}}
+\end{center}
+
+# Introduction
+
+This is the first document I created to demonstrate conditional recoding of analytical variables from original data. This arises from SAS programming practices I have done for local and national health surveillance data processing such as the National HIV Behavioral Surveillance, the Youth Risk Behavioral Surveillance, as well as analyses focusing on disease surveillance data and the Behavioral Risk Factor Surveillance system (BRFSS). 
+
+Known as filter questions, skip patterns are known to reduce the amount of time spent for each participant based on prior responses. As they help set up conditional denominators for calculating descriptive statistics, they are essential tools for survey methodology. For example, BRFSS asks questions on whether they have done an action in their life, such as smoking.\textsuperscript{1} For those who never smoked, they may skip past detailed questions regarding smoking behaviors. 
+
+There are occasions that systems take into account skip patterns, such as imputing values, collapsing categories, or using metadata to preserve the survey logic.\textsuperscript{2} Just as it is practical to have skip patterns programmed during data collection, it is also vital to consider for analysis. In public health and epidemiology, skip patterns reflect a type of eligibility criteria only considered for survey's purpose, and must be refined to fit the eligibility criteria that is appropriate for study. When they are ignored, prevalence estimates can be inflated due to misleading denominators and could be susceptible to misclassification bias. When skip patterns are considered during the first stage of your study design, researchers can improve precision, transparency, and improved interpretability for stakeholders. 
+
+This document will serve as the first example of demonstrating the impact of this type of data manipulation for R users. A modified version of the BRFSS 2008 data will be used, containing 11,046 observations with 46 variables.
+
+For this document, there will be one aim: to create a dichotomous variable called Current Smoker derived from two variables of interest. 
+
+# Data
+
+
+```{r, message = FALSE, warning = FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(scales)
+
+#Bringing in data
+load("brfss08_samp.RData")
+
+```
+
+# Two variables of interest to create one
+
+For this request, I was asked to consider two variables of interest to create an analytical variable for current smoker: 
+```{=latex}
+\begin{table}[ht]
+\centering
+\begin{tabular}{|c|p{7cm}|p{5cm}|}
+\hline
+\multicolumn{3}{|c|}{\textbf{Table 1: Survey Questions and Response Options}} \\
+\hline
+\textbf{Variable} & \textbf{Question} & \textbf{Values} \\
+\hline
+SMOKE100 & Have you smoked at least 100 cigarettes\textsuperscript{1} in your entire life? & 
+1 = Yes\newline
+2 = No\newline
+7 = Don't know/Not sure\newline
+9 = Refused \\
+\hline
+SMOKDAY2 & Do you now smoke cigarettes every day, some days, or not at all? & 
+1 = Every day\newline
+2 = Some days\newline
+3 = Not at all\newline
+7 = Don't know/Not sure\newline
+9 = Refused \\
+\hline
+\end{tabular}
+\begin{flushleft}
+\textsuperscript{1}Note: 5 packs = 100 cigarettes
+\end{flushleft}
+\end{table}
+```
+
+Let's look at one-way frequencies of each variable.
+
+```{r table-smoke100-title, results='asis', echo=FALSE}
+cat("\\begin{center}\\textbf{Table 2: Frequency of SMOKE100}\\end{center}\n")
+
+# For SMOKE100
+#Making custom formats
+ynraw_labels  <- c("1" = "Yes", "2" = "No", "7" = "DK/NS", "9" = "Missing")
+
+# Create a complete set of codes from the labels
+all_codes1 <- names(ynraw_labels)
+
+brfss08_samp %>%
+  count(SMOKE100, .drop = FALSE) %>%
+  mutate(SMOKE100 = as.character(SMOKE100)) %>%
+  complete(SMOKE100 = all_codes1, fill = list(n = 0)) %>%
+  mutate(life_100 = recode(SMOKE100, !!!ynraw_labels)) %>%
+  bind_rows(
+    tibble(SMOKE100 = "Total", life_100 = "Total Sample", n = sum(.$n, na.rm = TRUE))
+  ) %>%
+  select(SMOKE100, life_100, n) %>%
+  mutate(n = comma(n)) %>%
+  kable(format = "latex", booktabs = TRUE,
+        align = c("c", "l", "r"),
+        col.names = c("Code", "Ever Smk 100 cigs", "Count")) %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+From table 2, we can see that 4,068 participants had smoke at least 100 cigarettes in their entire lives, 6,940 participants did not smoke at least 100 cigarettes in their entire lives, 37 did not know or weren't sure, and 1 person refused to answer the question. 
+
+```{r table-smokday2-title, results='asis', echo=FALSE}
+
+#For SMOKDAY2
+cat("\\begin{center}\\textbf{Table 3: Frequency of SMOKDAY2}\\end{center}\n")
+
+#Making custom formats
+smkraw_labels <- c("1" = "Every day", "2" = "Some days", "3" = "Not at all",
+                   "7" = "DK/NS", "9" = "Refused")
+
+# Create a complete set of codes from the labels
+all_codes2 <- names(smkraw_labels)
+
+brfss08_samp %>%
+  count(SMOKDAY2, .drop = FALSE) %>%
+  mutate(SMOKDAY2 = as.character(SMOKDAY2)) %>%
+  complete(SMOKDAY2 = all_codes2, fill = list(n = 0)) %>%
+  mutate(freq_smk = recode(SMOKDAY2, !!!smkraw_labels)) %>%
+  bind_rows(
+    tibble(SMOKDAY2 = "Total", freq_smk = "Total Sample", n = sum(.$n, na.rm = TRUE))
+  ) %>%
+  select(SMOKDAY2, freq_smk, n) %>%
+  mutate(n = comma(n)) %>%
+  kable(format = "latex", booktabs = TRUE,
+        align = c("c", "l", "r"),
+        col.names = c("Code", "Smoking Frequency", "Count")) %>%
+  kable_styling(latex_options = "hold_position")
+
+```
+
+In table 3, We can also see that 1,097 participants smoked cigarettes every day at the time of the survey, 395 smoked some days, 2,573 did not smoke at all, and 7 did not know or were not sure. We also see that we have 6,978 missing (NA) for this variable. 
+
+It seems intuitive to assume that those who did not smoke at least 100 cigarettes in their entire lives were not given the question. As well, it also seem intuitive to assume that those who did not know or refused to answer the question were not given the question either. However, a validation step is done to confirm the logic was truly followed.
+
+For fun, here's a way to visualize your raw distribution of both variables:
+
+```{r, warning=FALSE, echo = FALSE}
+
+# For Ever Smoked 100 cigarettes
+#################################
+
+plot1 <- brfss08_samp %>%
+  count(SMOKE100, .drop = FALSE) %>%
+  mutate(SMOKE100 = as.character(SMOKE100)) %>%
+  complete(SMOKE100 = all_codes1, fill = list(n = 0)) %>%  # ensures all codes are present
+  mutate(life_100 = recode(SMOKE100, !!!ynraw_labels)) %>% # unpacks the label vector into function
+  mutate(life_100 = factor(life_100, levels = ynraw_labels[all_codes1])) %>%  # enforce label order
+  bind_rows(
+    tibble(SMOKE100 = "Total", life_100 = "Total Sample", n = sum(.$n, na.rm = TRUE))
+  ) %>%
+  select(SMOKE100, life_100, n)
+
+# Additional pipeline to refine print
+
+plot1 <- plot1 %>%
+  filter(life_100 != "Total Sample") %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  mutate(life_100 = factor(life_100, levels = c("Yes", "No", "DK/NS", "Missing")))
+
+#Printing visual
+
+ggplot(plot1, aes(x = life_100, y = n)) +
+  geom_bar(stat = "identity", fill = "#33A02C", color = "black", size = 0.5) +
+  geom_text(aes(label = paste0(round(percent, 2), "%")),
+            vjust = -0.5, size = 4, fontface = "bold") +
+  labs(
+    title = "Figure 1: Raw distribution of ever smoked 100 cigarettes question",
+    x = "Ever Smoked 100+ Cigarettes",
+    y = "Frequency",
+    caption = "Abbreviation: DK/NS = Don't Know/Not Sure"
+  ) +
+  scale_y_continuous(labels = label_comma(), limits = c(0,9000), expand = c(0,0)) +  # adds commas to y-axis
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 8),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.caption = element_text(size = 8, hjust = 0, margin = margin(t = 10)),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, size = 1),
+        axis.ticks.y = element_line(color = "black", size = 0.5),
+        plot.margin = margin(t = 5, r = 10, b = 20, l = 10)
+        )
+
+
+
+#For frequency of smoking cigarettes
+#######################################
+
+plot2 <- brfss08_samp %>%
+  count(SMOKDAY2, .drop = FALSE) %>%
+  mutate(SMOKDAY2 = as.character(SMOKDAY2)) %>%
+  complete(SMOKDAY2 = all_codes2, fill = list(n = 0)) %>%  # ensures all codes are present
+  mutate(freq_smk = recode(SMOKDAY2, !!!smkraw_labels)) %>% # unpacks the label vector into function
+  mutate(freq_smk = factor(freq_smk, levels = smkraw_labels[all_codes2])) %>%  # enforce label order
+  bind_rows(
+    tibble(SMOKDAY2 = "Total", freq_smk = "Total Sample", n = sum(.$n, na.rm = TRUE))
+  ) %>%
+  select(SMOKDAY2, freq_smk, n)
+
+# Additional pipeline to refine print
+
+plot2 <- plot2 %>%
+  filter(freq_smk != "Total Sample") %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  mutate(freq_smk = factor(freq_smk, levels = c("Every day", "Some days", "Not at all", "DK/NS", "Refused")))
+
+#Printing visual
+
+ggplot(plot2, aes(x = freq_smk, y = n)) +
+  geom_bar(stat = "identity", fill = "#1F78B4", color = "black", size = 0.5) +
+  geom_text(aes(label = paste0(round(percent, 2), "%")),
+            vjust = -0.5, size = 4, fontface = "bold") +
+  labs(
+    title = "Figure 2: Raw distribution of Frequency of smoking cigarettes",
+    x = "Frequency of smoking cigarettes",
+    y = "Frequency",
+    caption = "Abbreviation: DK/NS = Don't Know/Not Sure"
+    ) +
+  scale_y_continuous(labels = label_comma(), limits = c(0,5500), expand = c(0,0)) +  # adds commas to y-axis
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(angle = 45, hjust = 1, size = 8),
+        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+        plot.caption = element_text(size = 8, hjust = 0, margin = margin(t = 10)),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, size = 1),
+        axis.ticks.y = element_line(color = "black", size = 0.5),
+        plot.margin = margin(t = 5, r = 10, b = 20, l = 10)
+  )
+
+
+```
+
+# Checking skip patterns 
+
+To confirm the skip patterns of the variables were followed, here is a two-way frequency table of 
+SMOKE100 and SMOKDAY2:
+
+```{r table-smoke100-smokday2, echo=FALSE, results='asis'}
+
+#Creating custom labels
+ynraw_labels  <- c("1" = "Yes", "2" = "No", "7" = "DK/NS", "9" = "Missing")
+smkraw_labels <- c("1" = "Every day", "2" = "Some days", "3" = "Not at all",
+                   "7" = "DK/NS", "9" = "Refused")
+
+# Create a complete set of codes from the labels
+all_codes1 <- names(ynraw_labels)
+all_codes2 <- names(smkraw_labels)
+
+# Step 1: Build the data frame
+two_way <- brfss08_samp %>%
+  count(SMOKE100, SMOKDAY2, .drop = FALSE) %>%
+  mutate(SMOKE100 = as.character(SMOKE100),
+         SMOKDAY2 = as.character(SMOKDAY2)) %>%
+  complete(SMOKE100 = all_codes1, SMOKDAY2 = all_codes2, fill = list(n = 0)) %>%
+  mutate(life_100 = recode(SMOKE100, !!!ynraw_labels),
+         freq_smk = recode(SMOKDAY2, !!!smkraw_labels)) 
+
+# Step 2: Precompute total count
+total_n <- sum(two_way$n, na.rm = TRUE)
+
+# Step 3: Append total row
+two_way <- two_way %>%
+  bind_rows(
+    tibble(SMOKE100 = "Total",
+           life_100 = "Total",
+           SMOKDAY2 = "Total",
+           freq_smk = "Total",
+           n = total_n)
+  ) %>%
+  select(life_100, freq_smk, n)
+
+# Step 4: Format for LaTeX output
+two_way_table <- two_way %>%
+  mutate(n = comma(n)) %>%
+  kable(format = "latex", booktabs = TRUE, longtable = TRUE,
+        col.names = c("Ever Smoked 100 Cigarettes", "Smoking Frequency", "Count"),
+        align = c("l", "l", "r")) %>%
+  kable_styling(latex_options = "repeat_header", full_width = FALSE, font_size = 7)
+
+# Step 5: Collapse table into a single string
+tbl4_string <- paste(two_way_table, collapse = "\n")
+
+# Step 6: Combine manual title and table
+tbl4_block <- paste(
+"\\begin{center}\\textbf{Table 4: Cross-tabulation of SMOKE100 and SMOKDAY2 Response}\\end{center}",
+  tbl4_string,
+  sep = "\n\n"
+)
+
+knitr::asis_output(tbl4_block)
+
+```
+
+Here, we safely see that respondents who said No (SMOKE100 = 2), Don't know or not sure (SMOKE100 = 7), or refused (SMOKE100 = 9) were marked as missing within the SMOKDAY2 variable. Here is a formal method to demonstrate this: 
+
+Table 4 demonstrates a suggested structure to export and "map" out all possible combinations to consider when creating your analytical variable for current smoker. In practice, this is exported out as a table (Excel) for reference during this stage of data manipulation. 
+
+# Creating the analytical variable
+
+Let's say that your workgroup decides that current smoker only include those who responded Every day or some days to the SMOKDAY2 question and those who responded No to SMOK100 and responded Not at all to SMOKDAY2 were defined as not being a current smoker. For re-coding, those deemed to be current smokers were to be coded as '1' for the new analytical variable (current_smk) and '0' for those who were not current smokers with anyone else marked as Unknown (NA_character_). 
+
+Here's an example of assuming that the question skip patterns were followed and not conducting any checks:
+
+```{r}
+#Creating analytical variable
+currsmk_wrong <- brfss08_samp %>%
+  mutate(
+    current_smk = case_when(
+      # Unknown/refused
+      SMOKDAY2 %in% c(7, 9)                 ~ NA_character_,
+      # Smoke every day or some days
+      SMOKDAY2 %in% c(1, 2)                           ~ "1",
+      # Smoked not at all
+      SMOKDAY2 == 3                                   ~ "0",
+      TRUE ~ NA_character_  # default to missing (.X)
+    )
+  )
+
+#Demonstrating issue:
+currsmk_wrong %>%
+count(SMOKE100, SMOKDAY2, current_smk, .drop = FALSE) %>%
+  mutate(SMOKE100 = as.character(SMOKE100),
+         SMOKDAY2 = as.character(SMOKDAY2),
+         current_smk = as.character(current_smk)) %>%
+  complete(SMOKE100 = all_codes1,
+           SMOKDAY2 = all_codes2,
+           current_smk = c("0", "1", NA_character_),
+           fill = list(n = 0)) %>%
+  bind_rows(
+    tibble(SMOKE100 = "Total",
+           SMOKDAY2 = "Total",
+           current_smk = "Total",
+           n = sum(.$n, na.rm = TRUE))
+  ) %>%
+  select(current_smk, SMOKE100, SMOKDAY2, n) -> crosstab1smk
+
+```
+
+Let's look at the first 12 combinations from our cross-walk (crosstab1smk).
+
+```{r}
+bind_rows(slice_head(crosstab1smk, n = 12))
+```
+
+We see that the records that were coded as '1' for our analytical variable were all those who reported smoking every day (SMOKE100 = 1 & SMOKDAY2 = 1, n = 1,097) and those who reported smoking some days (SMOKE100 = 1 & SMOKDAY2 = 2, n = 395). We also see that those who were coded as not current smokers seem to be coded appropriately (SMOKE100 = 1 & SMOKDAY2 = 2, n = 2,573) as well as our missing (SMOKE100 = 1 & SMOKDAY2 = 7, n = 3). So far, we see 4,068 participants were recoded, but what about the remaining 6,978?
+
+```{r}
+bind_rows(slice_tail(crosstab1smk, n = 4))
+
+```
+
+We see that the remaining records would be recoded as missing in our analytical variables. Those that reported don't know (SMOKE100 = 7 & SMOKDAY2 = NA, n = 37) and those that refused to answer the smoking question (SMOKE100 = 9 & SMOKDAY2 = NA, n = 1) are ok. But what about those that reported to not have smoked (SMOKE100 = 2 & SMOKDAY2 = NA, n = 6,940)? That's over 6,900 (63.2%) missing! 
+
+This is because skip patterns introduce a structural missingness; a respondent skips a question and is marked 'NA' but not due to nonresponse.\textsuperscript{3} Those participants were omitted from this question because they have never smoked, or precisely smoked at least 100 cigarettes in their lives. From an epidemiological perspective, the deliberate skip of this question from those participants is based on survey logic, not error. Therefore, why would they be removed when the lack of exposure was documented? 
+
+Here's a visual to demonstrate this phenomenon. 
+
+```{r warning=FALSE, echo=FALSE}
+plot3 <- two_way %>%
+  filter(life_100 != "Total") %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  mutate(freq_smk = fct_na_value_to_level(freq_smk, level = "Missing")) %>%
+  mutate(freq_smk = factor(freq_smk, levels = c("Every day", "Some days", "Not at all", "DK/NS", "Refused", "Missing")))
+
+
+ggplot(plot3, aes(x = freq_smk, y = n, fill = life_100)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  geom_text(data = plot3 %>% filter(n > 2),
+            aes(label = paste0(round(percent, 2), "%")),
+            position = position_dodge(width = 0.9),
+            vjust = -1, size = 3, fontface = "bold") +
+  labs(
+    title = "Figure 3: Smoking Frequency by Smoking History",
+    x = "Current Smoking Frequency",
+    y = "Count",
+    caption = "Abbreviation: DK/NS = Don't Know/Not Sure",
+    fill = "Ever Smoked 100+ Cigarettes"
+  ) +
+  scale_y_continuous(labels = scales::label_comma(), limits = c(0,8000), expand = c(0, 0)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.caption = element_text(size = 8, hjust = 0, margin = margin(t = 10)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    axis.ticks.y = element_line(color = "black", size = 0.5),
+    legend.text = element_text(size = 7),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.key.size = unit(0.4, "cm"),
+    legend.spacing.y = unit(0.2, "cm"),
+    legend.position = c(0.5, 0.5),
+    legend.justification = c(1, 0),
+    plot.margin = margin(t = 5, r = 10, b = 20, l = 10)
+  )
+
+```
+
+From this example, we can see that we have a overwhelming amount of responses who reported "Yes" to Ever smoked 100+ cigarettes answering the Current Smoking Frequency question. However, we see all those who reported to never have smoked 100+ cigarettes (in teal blue) marked as missing. This is theoretically correct based on survey questionnaire design. Why would those who never smoked be given this question? It would be a waste of time for the participant. 
+
+This is why it is critical to conduct these checks!
+
+Therefore, with conditional recoding, this would be the appropriate method to create the current smoker analytical variable:
+
+```{r}
+#Creating analytical variable
+currsmk_right <- brfss08_samp %>%
+  mutate(
+    current_smk = case_when(
+      # Unknown/refused
+      SMOKE100 %in% c(7, 9)                 ~ NA_character_,
+      SMOKE100 == 2                                   ~ "0",
+      # Current smoker
+      SMOKE100 == 1 & SMOKDAY2 %in% c(1, 2)           ~ "1",
+      # Non-smoker
+      SMOKE100 == 1 & SMOKDAY2 == 3                   ~ "0",
+      # Unknown/refused
+      SMOKE100 == 1 & SMOKDAY2 %in% c(7, 9) ~ NA_character_,
+      TRUE ~ NA_character_  # default to missing (.X)
+    )
+  )
+
+currsmk_right %>%
+  count(SMOKE100, SMOKDAY2, current_smk, .drop = FALSE) %>%
+  mutate(SMOKE100 = as.character(SMOKE100),
+         SMOKDAY2 = as.character(SMOKDAY2),
+         current_smk = as.character(current_smk)) %>%
+  complete(SMOKE100 = all_codes1,
+           SMOKDAY2 = all_codes2,
+           current_smk = c("0", "1", NA_character_),
+           fill = list(n = 0)) %>%
+  bind_rows(
+    tibble(SMOKE100 = "Total",
+           SMOKDAY2 = "Total",
+           current_smk = "Total",
+           n = sum(.$n, na.rm = TRUE))
+  ) %>%
+  select(current_smk, SMOKE100, SMOKDAY2, n) -> crosstab2smk
+
+#Getting first 12 combinations
+bind_rows(slice_head(crosstab2smk, n = 12))
+
+#Getting last 3 combinations
+bind_rows(slice_tail(crosstab2smk, n = 4))
+
+```
+
+Here, we see that with conditional recoding, we were able to capture the 6,978 records to be coded as '0' for the analytical variable for current smoker, where subsequential analysis could be done and reported accurately. 
+
+```{r table-smoking-3way, results='asis', echo=FALSE}
+tbl5 <- crosstab2smk %>%
+  mutate(current_smk = ifelse(is.na(current_smk), "Missing", current_smk),
+         n = scales::comma(n)) %>%
+  arrange(factor(current_smk, levels = c("1", "0", "Missing", "Total")),
+          SMOKE100, SMOKDAY2) %>%
+  kable(format = "latex", booktabs = TRUE,
+        col.names = c("Current Smoker", "Ever Smoked 100 Cigarettes", "Smoking Frequency", "Count"),
+        align = c("c", "l", "l", "r")) %>%
+  kable_styling(latex_options = NULL, full_width = FALSE, font_size = 7)  # ← no float options
+
+# Combine title and table in raw LaTeX block
+full_block <- paste0(
+  "\\begin{center}\n",
+  "\\textbf{Table 5: Three-Way Cross-tabulation of Smoking Variables}\n\n",
+  tbl5,
+  "\n\\end{center}"
+)
+
+knitr::asis_output(full_block)
+
+```
+
+
+```{r pagebreak-after-table, results='asis', echo=FALSE}
+cat("\\newpage")
+```
+
+# Impact
+
+Conditional recoding may seem redundant, but it plays a pivotal role in ensuring data integrity throughout your analysis stages and onward. By honoring survey logic and skip patterns, it prevents misclassification and bias and reduces the risk of making decisions based on assumptions instead of logic. Analysts will spend less time fixing broken logic or re-running models during the validation stage. Therefore, reducing time burden and labor costs. 
+
+Through this method, you enable transparency in how definitions are applied, fostering trust in your outputs and enhancing reproducibility. When stakeholders can trace logic back to its source, your data stories become not only credible but actionable. 
+
+
+# Summary
+
+This example is meant to demonstrate the importance of conditional formatting for data analysis. In the future, more documents will be developed with more complex combinations as well as tips for data management for documentation.
+
+
+# Suggested Citation: 
+
+Trujillo L. Conditional recoding of variables for Data Analysis. GitHub. Published August 26, 2025. https://github.com/lindst973404/Conditional-recording-analysis.
+
+
+# References
+1. Centers for Disease Control and Prevention. Data Guides: Health Risks and Behaviors. Disability and Health Data System (DHDS). Published April 3, 2025. Accessed August 25, 2025. https://www.cdc.gov/dhds/data-guides/health-risks-and-behaviors.html
+2. Dykema JD. Skip Pattern Coding in Survey Data: A Comparison of Methods [master’s thesis]. Lawrence, KS: University of Kansas; 2012. Available from: https://hdl.handle.net/1808/11040
+3. Zhang G, He Y, Cai B, Moriarity C, Shin HC, Parsons V, Irimata KE. Multiple imputation of missing data with skip-pattern covariates: a comparison of alternative strategies. J Stat Comput Simul. 2023;94(7):1543–1570. doi:10.1080/00949655.2023.2293124.
