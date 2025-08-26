@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this notebook or PDF in your work, please cite it using the metadata below."
+title: "Conditional Recoding Notebook for Epidemiologic Analysis"
+authors:
+  - family-names: Trujillo
+    given-names: Lindsay
+    orcid: https://orcid.org/0000-0002-0024-3278
+date-released: 2025-08-26
+version: "1.0"
+license: MIT
+repository-code: https://github.com/lindst973404/Conditional-recording-analysis
+type: work
